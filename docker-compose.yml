@@ -1,0 +1,42 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    environment:
+      # backend/.env supplies G8_* and JWT_*; these only override for Docker paths
+      DATABASE_URL: sqlite:////app/data/clinicreach.db
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+    volumes:
+      - clinicreach_sqlite:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  clinicreach_sqlite:
+
+networks:
+  default:
+    name: clinicreach
