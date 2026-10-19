@@ -28,8 +28,9 @@ export default function HomePage() {
               Reach medical practices with a calm, focused desk.
             </h1>
             <p className="max-w-md text-base leading-relaxed text-[#d5eae8] sm:text-lg">
-              Prospect clinics, save lists, enrich contacts, launch campaigns,
-              and triage replies — powered by Graph8.
+              Find clinics and Practice Admins, enrich contacts, run
+              practice-focused email sequences, and triage replies — powered by
+              Graph8.
             </p>
             <div className="flex flex-wrap gap-3 pt-1">
               <Link
@@ -54,9 +55,9 @@ export default function HomePage() {
               </p>
               <ul className="mt-4 space-y-3">
                 {[
-                  ["Dermatology clinics · Austin", "12 matches"],
-                  ["Office managers · Chicago", "8 contacts"],
-                  ["Enrichment dry-run", "Ready"],
+                  ["Dermatology clinics · Austin", "12 practices"],
+                  ["Office managers · Chicago", "8 admins"],
+                  ["Referral outreach dry-run", "Ready"],
                 ].map(([label, meta]) => (
                   <li
                     key={label}

@@ -83,13 +83,62 @@ async def create_list(body: CreateListBody, user: CurrentUser, db: DbSession):
 async def get_list_contacts(
     list_id: int,
     user: CurrentUser,
+    db: DbSession,
     limit: int = Query(50, ge=1, le=200),
+    page: int = Query(1, ge=1),
 ):
+    """Return CRM contacts on a Graph8 list (normalized for the UI)."""
     try:
-        return await call_tool(
-            "g8_search_contacts",
-            {"list_id": str(list_id), "limit": limit},
+        raw = await call_tool(
+            "g8_crm_get_list_contacts",
+            {"list_id": list_id, "limit": limit, "page": page},
         )
+        payload = raw
+        if isinstance(raw, dict) and isinstance(raw.get("result"), str):
+            try:
+                payload = {"result": json.loads(raw["result"])}
+            except json.JSONDecodeError:
+                payload = raw
+
+        inner = payload.get("result") if isinstance(payload, dict) else None
+        if not isinstance(inner, dict):
+            inner = payload if isinstance(payload, dict) else {}
+
+        contacts = (
+            inner.get("data")
+            or inner.get("contacts")
+            or inner.get("items")
+            or []
+        )
+        if not isinstance(contacts, list):
+            contacts = []
+
+        pagination = inner.get("pagination")
+        total = None
+        if isinstance(pagination, dict):
+            total = pagination.get("total")
+        if total is None:
+            total = inner.get("total")
+        if total is None:
+            total = inner.get("count")
+        if total is None:
+            total = len(contacts)
+
+        log_activity(
+            db,
+            user.id,
+            "lists.contacts",
+            {"list_id": list_id, "count": len(contacts)},
+        )
+        return {
+            "result": {
+                "contacts": contacts,
+                "total": total,
+                "page": page,
+                "limit": limit,
+                "list_id": list_id,
+            }
+        }
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 

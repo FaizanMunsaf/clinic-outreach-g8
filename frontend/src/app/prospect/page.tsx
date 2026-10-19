@@ -31,6 +31,144 @@ function contactKey(c: ContactItem, idx: number) {
   return `${c.linkedin_url || ""}-${c.first_name}-${c.last_name}-${idx}`;
 }
 
+function displayValue(v: unknown): string | null {
+  if (v == null) return null;
+  if (typeof v === "number") return String(Math.round(v * 100) / 100);
+  if (typeof v === "boolean") return v ? "Yes" : "No";
+  if (typeof v === "string") {
+    const t = v.trim();
+    if (!t || t.includes("***")) return null;
+    return t;
+  }
+  return null;
+}
+
+function ProfileField({ label, value }: { label: string; value?: unknown }) {
+  const text = displayValue(value);
+  if (!text) return null;
+  const isUrl = /^https?:\/\//i.test(text);
+  return (
+    <div className="border-b border-[var(--line)] py-2.5 last:border-0">
+      <p className="text-[0.7rem] font-semibold uppercase tracking-wide text-[var(--muted)]">
+        {label}
+      </p>
+      {isUrl ? (
+        <a
+          href={text}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-0.5 break-all text-sm font-medium text-[var(--accent)] hover:underline"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {text}
+        </a>
+      ) : (
+        <p className="mt-0.5 break-words text-sm text-[var(--ink)]">{text}</p>
+      )}
+    </div>
+  );
+}
+
+function ProfileModal({
+  title,
+  subtitle,
+  fields,
+  onClose,
+}: {
+  title: string;
+  subtitle?: string;
+  fields: Array<[string, unknown]>;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-[rgba(12,36,40,0.45)] p-4 sm:items-center"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="profile-modal-title"
+      onClick={onClose}
+    >
+      <div
+        className="animate-rise max-h-[85vh] w-full max-w-lg overflow-hidden rounded-2xl border border-[var(--line)] bg-white shadow-[var(--shadow)]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-[var(--line)] bg-[var(--surface-solid)] px-5 py-4">
+          <div className="min-w-0">
+            <p className="text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-[var(--warm)]">
+              Profile
+            </p>
+            <h2
+              id="profile-modal-title"
+              className="display mt-1 text-xl text-[var(--ink)]"
+            >
+              {title}
+            </h2>
+            {subtitle && (
+              <p className="mt-1 text-sm text-[var(--muted)]">{subtitle}</p>
+            )}
+          </div>
+          <button
+            type="button"
+            className="btn-secondary !px-3 !py-1.5 text-xs"
+            onClick={onClose}
+          >
+            Close
+          </button>
+        </div>
+        <div className="max-h-[calc(85vh-5.5rem)] overflow-y-auto px-5 py-2">
+          {fields.map(([label, value]) => (
+            <ProfileField key={label} label={label} value={value} />
+          ))}
+          {fields.every(([, v]) => !displayValue(v)) && (
+            <p className="py-6 text-sm text-[var(--muted)]">
+              No extra profile fields available for this result.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function contactProfileFields(c: ContactItem): Array<[string, unknown]> {
+  return [
+    ["First name", c.first_name],
+    ["Last name", c.last_name],
+    ["Job title", c.job_title],
+    ["Department", c.job_department],
+    ["Company", c.company_name],
+    ["Company domain", c.company_domain],
+    ["Work email", c.work_email],
+    ["City", c.city],
+    ["State", c.state],
+    ["Country", c.country],
+    ["LinkedIn", c.linkedin_url],
+    ["Confidence score", c.confidence_score],
+    ["Contact ID", c.id],
+  ];
+}
+
+function companyProfileFields(c: CompanyItem): Array<[string, unknown]> {
+  return [
+    ["Company name", c.name],
+    ["Domain", c.domain],
+    ["Industry", c.industry],
+    ["City", c.city],
+    ["State", c.state],
+    ["Country", c.country],
+    ["Employee count", c.employee_count],
+    ["Company ID", c.id],
+  ];
+}
+
 function toRow(c: ContactItem): Record<string, string> {
   const row: Record<string, string> = {};
   const map: Array<[keyof ContactItem, string]> = [
@@ -69,6 +207,11 @@ export default function ProspectPage() {
   const [lists, setLists] = useState<Graph8List[]>([]);
   const [listId, setListId] = useState<number | "">("");
   const [newListName, setNewListName] = useState("");
+  const [profile, setProfile] = useState<
+    | { kind: "contact"; item: ContactItem }
+    | { kind: "company"; item: CompanyItem }
+    | null
+  >(null);
 
   useEffect(() => {
     void fetchLists()
@@ -109,7 +252,12 @@ export default function ProspectPage() {
         setTotal(res.total);
       } else {
         const res = await searchContacts(q, 20);
-        setContacts(res.items);
+        const sorted = [...res.items].sort((a, b) => {
+          const sa = a.confidence_score ?? -Infinity;
+          const sb = b.confidence_score ?? -Infinity;
+          return sb - sa;
+        });
+        setContacts(sorted);
         setCompanies([]);
         setTotal(res.total);
       }
@@ -135,6 +283,14 @@ export default function ProspectPage() {
   function selectAll() {
     setSelected(new Set(contacts.map((_, i) => i)));
   }
+
+  function clearSelection() {
+    setSelected(new Set());
+  }
+
+  const allSelected =
+    contacts.length > 0 && selected.size === contacts.length;
+  const someSelected = selected.size > 0 && !allSelected;
 
   async function ensureListId(): Promise<number> {
     if (typeof listId === "number") return listId;
@@ -309,13 +465,26 @@ export default function ProspectPage() {
                   Save selected to list
                 </label>
                 {contacts.length > 0 && (
-                  <button
-                    type="button"
-                    className="text-xs font-semibold text-[var(--accent)]"
-                    onClick={selectAll}
-                  >
-                    Select all ({contacts.length})
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      className="text-xs font-semibold text-[var(--accent)]"
+                      onClick={() => (allSelected ? clearSelection() : selectAll())}
+                    >
+                      {allSelected
+                        ? "Unselect all"
+                        : `Select all (${contacts.length})`}
+                    </button>
+                    {someSelected && (
+                      <button
+                        type="button"
+                        className="text-xs font-semibold text-[var(--muted)]"
+                        onClick={clearSelection}
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
               <select
@@ -390,19 +559,30 @@ export default function ProspectPage() {
           {mode === "clinics" && companies.length > 0 && (
             <ul className="divide-y divide-[var(--line)] overflow-hidden rounded-xl border border-[var(--line)] bg-white">
               {companies.map((clinic, idx) => (
-                <li key={`${clinic.name}-${idx}`} className="px-4 py-3.5">
-                  <p className="font-semibold text-[var(--ink)]">
-                    {clinic.name || "Untitled company"}
-                  </p>
-                  <p className="text-sm text-[var(--muted)]">
-                    {place([
-                      clinic.industry,
-                      clinic.city,
-                      clinic.state,
-                      clinic.country,
-                      clinic.domain,
-                    ])}
-                  </p>
+                <li key={`${clinic.name}-${idx}`}>
+                  <button
+                    type="button"
+                    className="w-full px-4 py-3.5 text-left transition hover:bg-[var(--tint)]/50"
+                    onClick={() =>
+                      setProfile({ kind: "company", item: clinic })
+                    }
+                  >
+                    <p className="font-semibold text-[var(--ink)]">
+                      {clinic.name || "Untitled company"}
+                    </p>
+                    <p className="text-sm text-[var(--muted)]">
+                      {place([
+                        clinic.industry,
+                        clinic.city,
+                        clinic.state,
+                        clinic.country,
+                        clinic.domain,
+                      ])}
+                    </p>
+                    <p className="mt-1 text-[0.7rem] font-semibold text-[var(--accent)]">
+                      View profile
+                    </p>
+                  </button>
                 </li>
               ))}
             </ul>
@@ -410,6 +590,22 @@ export default function ProspectPage() {
 
           {mode === "contacts" && contacts.length > 0 && (
             <ul className="divide-y divide-[var(--line)] overflow-hidden rounded-xl border border-[var(--line)] bg-white">
+              <li className="flex items-center gap-3 border-b border-[var(--line)] bg-[var(--surface-solid)] px-4 py-2.5">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  ref={(el) => {
+                    if (el) el.indeterminate = someSelected;
+                  }}
+                  onChange={() =>
+                    allSelected ? clearSelection() : selectAll()
+                  }
+                  aria-label={allSelected ? "Unselect all" : "Select all"}
+                />
+                <span className="text-xs font-semibold text-[var(--muted)]">
+                  {selected.size} selected
+                </span>
+              </li>
               {contacts.map((person, idx) => {
                 const name =
                   [person.first_name, person.last_name]
@@ -419,16 +615,23 @@ export default function ProspectPage() {
                 return (
                   <li
                     key={contactKey(person, idx)}
-                    className="flex items-start gap-3 px-4 py-3.5"
+                    className="flex items-start gap-3 px-4 py-3.5 transition hover:bg-[var(--tint)]/40"
                   >
                     <input
                       type="checkbox"
                       className="mt-1"
                       checked={checked}
                       onChange={() => toggle(idx)}
+                      onClick={(e) => e.stopPropagation()}
                       aria-label={`Select ${name}`}
                     />
-                    <div className="min-w-0 flex-1">
+                    <button
+                      type="button"
+                      className="min-w-0 flex-1 text-left"
+                      onClick={() =>
+                        setProfile({ kind: "contact", item: person })
+                      }
+                    >
                       <p className="font-semibold text-[var(--ink)]">{name}</p>
                       <p className="text-sm text-[var(--muted)]">
                         {place([
@@ -439,7 +642,10 @@ export default function ProspectPage() {
                           person.work_email,
                         ])}
                       </p>
-                    </div>
+                      <p className="mt-1 text-[0.7rem] font-semibold text-[var(--accent)]">
+                        View profile
+                      </p>
+                    </button>
                     {person.confidence_score != null && (
                       <span className="shrink-0 text-xs text-[var(--muted)]">
                         score {Math.round(person.confidence_score)}
@@ -452,6 +658,34 @@ export default function ProspectPage() {
           )}
         </div>
       </WorkSurface>
+
+      {profile?.kind === "contact" && (
+        <ProfileModal
+          title={
+            [profile.item.first_name, profile.item.last_name]
+              .filter(Boolean)
+              .join(" ") || "Contact profile"
+          }
+          subtitle={place([
+            profile.item.job_title,
+            profile.item.company_name,
+          ])}
+          fields={contactProfileFields(profile.item)}
+          onClose={() => setProfile(null)}
+        />
+      )}
+      {profile?.kind === "company" && (
+        <ProfileModal
+          title={profile.item.name || "Company profile"}
+          subtitle={place([
+            profile.item.industry,
+            profile.item.city,
+            profile.item.state,
+          ])}
+          fields={companyProfileFields(profile.item)}
+          onClose={() => setProfile(null)}
+        />
+      )}
     </div>
   );
 }
